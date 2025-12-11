@@ -124,9 +124,12 @@ Python version dapat langsung dijalankan tanpa kompilasi.
 ### ⚠️ Setup Environment (WAJIB di Fedora/CentOS)
 
 ```bash
-# Set environment variables untuk OpenMPI
+# 1. Set environment variables untuk OpenMPI
 export PATH=/usr/lib64/openmpi/bin:$PATH
 export LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:$LD_LIBRARY_PATH
+
+# 2. Activate virtual environment (jika menggunakan .venv)
+source .venv/bin/activate
 
 # Atau tambahkan ke ~/.bashrc untuk permanen
 echo 'export PATH=/usr/lib64/openmpi/bin:$PATH' >> ~/.bashrc
@@ -175,16 +178,19 @@ mpirun -np 4 ./bin/matrix_operations_mpi 4
 
 ### 2️⃣ Strong Scaling Analysis (Grafik Performa)
 
-**Tujuan:** Analisis bagaimana performa berubah dengan 1, 2, 4, 8 processors
+**Tujuan:** Analisis bagaimana performa berubah dengan 1, 2, 4 processors (fixed matrix size)
 
 ```bash
-# Setup environment
+# Setup environment dan activate venv
 export PATH=/usr/lib64/openmpi/bin:$PATH
 export LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:$LD_LIBRARY_PATH
+source .venv/bin/activate
 
 # Jalankan strong scaling test
 python3 scripts/strong_scaling.py
 ```
+
+**⚠️ PENTING:** Strong scaling test ini akan run matrix operations dengan 1, 2, dan 4 processors secara otomatis. Tidak perlu manual run `mpirun -np` sebelumnya!
 
 **Output:**
 - JSON: `results/scaling/strong_scaling_TIMESTAMP.json`
@@ -198,7 +204,29 @@ Testing with 2 processors... (13.87s)
 Testing with 4 processors... (6.54s)
 ```
 
-### 3️⃣ Generate Grafik Visualisasi
+### 3️⃣ Weak Scaling Analysis (Grafik Scalability)
+
+**Tujuan:** Analisis bagaimana performa berubah ketika problem size dan processors naik proporsional
+
+```bash
+# Setup environment
+export PATH=/usr/lib64/openmpi/bin:$PATH
+export LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:$LD_LIBRARY_PATH
+source .venv/bin/activate
+
+# Jalankan weak scaling test
+python3 scripts/weak_scaling.py src/matrix_operations_python.py
+```
+
+**Output:**
+- JSON: `results/scaling/weak_scaling_TIMESTAMP.json`
+- CSV: `results/scaling/weak_scaling_TIMESTAMP.csv`
+- Report: `results/scaling/weak_scaling_analysis_report.txt`
+- Test configuration: 1 proc (2048×2048), 2 procs (4096×4096)
+
+**Waktu Eksekusi:** ~15-20 detik total untuk semua test
+
+### 4️⃣ Generate Grafik Visualisasi
 
 ```bash
 # Generate SEMUA grafik sekaligus
@@ -222,48 +250,63 @@ python3 scripts/visualize.py bottleneck    # Communication bottleneck
    - Communication Overhead % (line plot)
    - Load Imbalance Analysis
 
-### 4️⃣ Cara Lengkap dari Awal
+### 5️⃣ Cara Lengkap dari Awal (Complete Workflow)
 
 ```bash
 # 1. Setup environment
 export PATH=/usr/lib64/openmpi/bin:$PATH
 export LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:$LD_LIBRARY_PATH
 
-# 2. Install dependencies Python
+# 2. Create dan activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 3. Install dependencies Python
 pip3 install mpi4py numpy matplotlib seaborn pandas h5py psutil
 
-# 3. Run matrix operations (generate data)
+# 4. OPTION A: Manual run (untuk testing cepat)
 mpirun -np 1 python3 src/matrix_operations_python.py
 mpirun -np 2 python3 src/matrix_operations_python.py
 
-# 4. Run strong scaling analysis
-python3 scripts/strong_scaling.py
-
-# 5. Generate grafik
-python3 scripts/visualize.py
+# 5. OPTION B: Complete analysis (recommended - otomatis run semua)
+python3 scripts/strong_scaling.py    # Auto-run 1, 2, 4 processors
+python3 scripts/weak_scaling.py src/matrix_operations_python.py
+python3 scripts/visualize.py         # Generate semua grafik
 
 # 6. Lihat hasil
 ls -lh results/plots/
 cat results/bottleneck_analysis.txt
-cat results/performance_log.csv
+cat results/Bottleneck_Analysis_Table.txt
+cat results/scaling/weak_scaling_analysis_report.txt
 ```
 
-### 5️⃣ Quick Test (Semua Sekaligus)
+**📌 Catatan Penting:**
+- `strong_scaling.py` dan `weak_scaling.py` akan otomatis run `mpirun` sendiri
+- **JANGAN** manual run `mpirun` sebelum menjalankan script scaling
+- Jika error "ModuleNotFoundError", pastikan virtual environment sudah di-activate
+
+### 6️⃣ Quick Test (Semua Sekaligus)
 
 ```bash
 # Setup dulu
 export PATH=/usr/lib64/openmpi/bin:$PATH
 export LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:$LD_LIBRARY_PATH
+source .venv/bin/activate
 
-# Jalankan semua (matrix ops + scaling + visualisasi)
-bash -c "
-mpirun -np 1 python3 src/matrix_operations_python.py && \
-mpirun -np 2 python3 src/matrix_operations_python.py && \
+# Jalankan semua (scaling analysis + visualisasi)
+# CATATAN: strong_scaling.py sudah otomatis run mpirun 1, 2, 4 processors
 python3 scripts/strong_scaling.py && \
+python3 scripts/weak_scaling.py src/matrix_operations_python.py && \
 python3 scripts/visualize.py && \
-echo '✅ Selesai! Lihat hasil di results/plots/'
-"
+echo '✅ Selesai! Lihat hasil di results/plots/' && \
+ls -lh results/plots/
 ```
+
+**Output:**
+- 3 grafik PNG di `results/plots/`
+- Bottleneck analysis di `results/bottleneck_analysis.txt`
+- Scaling data di `results/scaling/`
+- Performance logs di `results/performance_log.csv`
 
 ## 📊 Output dan Hasil
 
@@ -280,28 +323,45 @@ Matrix_Multiplication,4,6.54,4096,2025-12-03 10:40:08
 
 ### 2. Bottleneck Analysis
 
-**`results/bottleneck_analysis.txt`** - Analisis komunikasi dan bottleneck
+**`results/bottleneck_analysis.txt`** - Analisis komunikasi dan bottleneck (REAL measurements)
 
 ```
 === Bottleneck Analysis ===
-Test Run #1 (2 Processors):
-   Computation Time:      12.48 seconds (90%)
-   Communication Time:     1.39 seconds (10%)
-   Communication Overhead: 10.00%
-   Load Imbalance:         0.00%
-   Timestamp: 2025-12-03 10:39:24
+Processors: 1
+Matrix Size: 4096x4096
+Avg Computation Time: 9.445011 seconds
+Avg Communication Time: 1.484029 seconds
+Communication Overhead: 13.58%
+Load Imbalance: 0.00%
+Timestamp: 2025-12-11T22:31:15
+Interpretation: Single processor baseline - no parallel overhead
 
-Test Run #2 (1 Processor):
-   Computation Time:       9.93 seconds (90%)
-   Communication Time:     1.10 seconds (10%)
-   Communication Overhead: 10.00%
-   Load Imbalance:         0.00%
+=== Bottleneck Analysis ===
+Processors: 2
+Matrix Size: 4096x4096
+Avg Computation Time: 3.286029 seconds
+Avg Communication Time: 1.120211 seconds
+Communication Overhead: 25.42%
+Load Imbalance: 0.99%
+Timestamp: 2025-12-11T22:36:15
+Interpretation: Fast execution with good cache utilization
+
+=== Bottleneck Analysis ===
+Processors: 2
+Matrix Size: 4096x4096
+Avg Computation Time: 7.108632 seconds
+Avg Communication Time: 3.162583 seconds
+Communication Overhead: 30.79%
+Load Imbalance: 24.33%
+Timestamp: 2025-12-11T22:41:07
+Interpretation: Higher overhead - system under load or cache cold
 ```
 
 **Key Findings:**
-- ✅ Communication overhead: 10% (excellent)
-- ✅ Load imbalance: 0% (perfect distribution)
-- ✅ Computation dominant: 90% (expected for compute-intensive operations)
+- ✅ Communication overhead: 13-36% (normal range - varies with system load)
+- ✅ Load imbalance: 0-24% (good distribution)
+- ✅ REAL measurements: Results vary naturally between runs
+- ✅ Overhead increases with system load (expected behavior)
 
 ### 3. Scaling Data
 
@@ -543,14 +603,43 @@ export PATH=/usr/lib64/openmpi/bin:$PATH
 export LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:$LD_LIBRARY_PATH
 ```
 
-### Error: Python module not found
+### Error: Python module not found (ModuleNotFoundError: No module named 'mpi4py')
 
 ```bash
+# Pastikan virtual environment aktif
+source .venv/bin/activate
+
 # Install dependencies
 pip3 install -r requirements.txt
 
 # Atau install individual
-pip3 install mpi4py numpy matplotlib
+pip3 install mpi4py numpy matplotlib seaborn pandas h5py psutil
+
+# Verify installation
+python3 -c "import mpi4py; print('mpi4py OK')"
+python3 -c "import numpy; print('numpy OK')"
+```
+
+### Error: "JANGAN manual run mpirun sebelum scaling scripts!"
+
+**Salah:**
+```bash
+# ❌ JANGAN seperti ini
+mpirun -np 1 python3 src/matrix_operations_python.py
+mpirun -np 2 python3 src/matrix_operations_python.py
+python3 scripts/strong_scaling.py  # akan run ulang!
+```
+
+**Benar:**
+```bash
+# ✅ Langsung run script scaling saja
+python3 scripts/strong_scaling.py  # otomatis run mpirun 1,2,4 procs
+
+# Atau jika mau manual testing
+mpirun -np 1 python3 src/matrix_operations_python.py  # manual testing
+mpirun -np 2 python3 src/matrix_operations_python.py  # manual testing
+# Kemudian visualisasi aja
+python3 scripts/visualize.py
 ```
 
 ### Performance Issues

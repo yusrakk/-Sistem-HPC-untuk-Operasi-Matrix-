@@ -99,14 +99,22 @@ class DistributedMatrixStorage:
 
 def matrix_multiply_mpi(A, B, comm):
     """
-    Distributed matrix multiplication using MPI
+    Distributed matrix multiplication using MPI with detailed timing
     A and B are distributed row-wise across processes
+    Returns: (result_matrix, computation_time, communication_time)
     """
     rank = comm.Get_rank()
     size = comm.Get_size()
     
+    # Initialize timing counters
+    comp_time = 0.0
+    comm_time = 0.0
+    
+    # Broadcast matrix size
+    comm_start = time.time()
     n = A.shape[0] if rank == 0 else None
     n = comm.bcast(n, root=0)
+    comm_time += time.time() - comm_start
     
     # Distribute rows of A
     rows_per_proc = n // size
@@ -119,7 +127,10 @@ def matrix_multiply_mpi(A, B, comm):
     else:
         B_full = np.empty((n, n), dtype=np.float64)
     
+    # Broadcast B to all processes (MPI communication)
+    comm_start = time.time()
     comm.Bcast(B_full, root=0)
+    comm_time += time.time() - comm_start
     
     # Get local portion of A
     if rank == 0:
@@ -127,7 +138,7 @@ def matrix_multiply_mpi(A, B, comm):
     else:
         A_local = np.empty((end_row - start_row, n), dtype=np.float64)
     
-    # Scatter A rows
+    # Scatter A rows (MPI communication)
     sendcounts = None
     displacements = None
     
@@ -139,24 +150,33 @@ def matrix_multiply_mpi(A, B, comm):
         A_flat = None
     
     A_local_flat = np.empty((end_row - start_row) * n, dtype=np.float64)
+    
+    comm_start = time.time()
     comm.Scatterv([A_flat, sendcounts, displacements, MPI.DOUBLE], A_local_flat, root=0)
+    comm_time += time.time() - comm_start
+    
     A_local = A_local_flat.reshape((end_row - start_row, n))
     
-    # Local computation
+    # Local computation (REAL computation time)
+    comp_start = time.time()
     C_local = np.dot(A_local, B_full)
+    comp_time = time.time() - comp_start
     
-    # Gather results
+    # Gather results (MPI communication)
     C_flat = None
     if rank == 0:
         C_flat = np.empty(n * n, dtype=np.float64)
     
     recvcounts = sendcounts
+    
+    comm_start = time.time()
     comm.Gatherv(C_local.flatten(), [C_flat, recvcounts, displacements, MPI.DOUBLE], root=0)
+    comm_time += time.time() - comm_start
     
     if rank == 0:
-        return C_flat.reshape((n, n))
+        return C_flat.reshape((n, n)), comp_time, comm_time
     else:
-        return None
+        return None, comp_time, comm_time
 
 
 def matrix_inverse_distributed(A, comm):
@@ -255,14 +275,12 @@ def main():
         print("\n[1] Starting Matrix Multiplication...")
     
     mult_monitor = SimpleTimer("Matrix_Multiplication")
-    comm_start = time.time()
     
-    C = matrix_multiply_mpi(A, B, comm)
+    # Matrix multiplication with REAL timing measurements
+    C, comp_time, comm_time = matrix_multiply_mpi(A, B, comm)
     
     comm.Barrier()
     mult_time = mult_monitor.stop()
-    comp_time = mult_time * 0.9  # Approximate (actual timing would need more instrumentation)
-    comm_time = mult_time * 0.1
     
     if rank == 0:
         print(f"   Completed in {mult_time:.4f} seconds")
